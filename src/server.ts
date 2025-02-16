@@ -25,6 +25,11 @@ export async function startServer(options: ServerOptions = {}) {
 
   app.post("/generate-initial-docs", (c) => generateInitialDocs(c, initialAgent));
 
+  // test api
+  app.get("/test", (c) => {
+    return c.json({ message: "Hello from Hono" });
+  });
+
   // Start server
   const port = options.port || parseInt(process.env.PORT || "3000", 10);
   const server = serve({
