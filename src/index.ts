@@ -1,5 +1,5 @@
 import * as dotenv from "dotenv";
-import { createAgent, createOpenAILLM } from "spinai";
+import { createAgent, createHttpLLM } from "spinai";
 import { DocConfig, ReviewState } from "./types";
 import { createFullConfig } from "./config";
 import { actions } from "./actions";
@@ -15,6 +15,32 @@ export interface CreateDocUpdateAgentOptions {
   port?: number;
 }
 
+
+
+const groqLLM = createHttpLLM({
+  endpoint: "https://api.groq.com/openai/v1/chat/completions",
+  apiKey: process.env.GROQ_API_KEY, // Ensure the API key is set in your environment
+  headers: {
+    "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+    "Content-Type": "application/json"
+  },
+  // Transform request body to match Groq API expectations
+  transformRequest: (body: any) => {
+    return ({
+      model: "llama-3.1-8b-instant", // Change if using another Groq model
+      messages: body.messages,
+      temperature: body.temperature ?? 0.7,
+      max_tokens: body.max_tokens ?? 1024,
+      // response_format: { type: "json_object" },
+    })
+  },
+  // Transform response to extract the text content
+  transformResponse: (response: any) => {
+    return response.choices[0]?.message?.content || ""
+  }
+});
+
+
 export function createDocUpdateAgent(
   options: CreateDocUpdateAgentOptions = {}
 ) {
@@ -22,6 +48,7 @@ export function createDocUpdateAgent(
 
   // Validate required credentials
   const openAiKey = options.openAiKey || process.env.OPENAI_API_KEY;
+  const openAiModel = process.env.OPENAI_MODEL || "llama-3.3-70b-versatile"
   const githubToken = options.githubToken || process.env.GITHUB_TOKEN;
   if (!openAiKey) throw new Error("OpenAI API key is required");
   if (!githubToken) throw new Error("GitHub token is required");
@@ -37,10 +64,7 @@ export function createDocUpdateAgent(
     5. Update navigation structure in mint.json as needed
     6. ${config.prConfig.updateOriginalPr ? "Update the original PR" : "Create a new PR"} with the documentation updates`,
     actions,
-    llm: createOpenAILLM({
-      apiKey: openAiKey,
-      model: "gpt-4-turbo-preview",
-    }),
+    llm: groqLLM,
     agentId: "mintlify-update-agent",
     // Optional: Enable SpinAI monitoring
     // spinApiKey: process.env.SPINAI_API_KEY,
@@ -61,6 +85,7 @@ export function createInitialDocsAgent(
 ) {
   // Validate required credentials
   const openAiKey = options.openAiKey || process.env.OPENAI_API_KEY;
+  const openAiModel = process.env.OPENAI_MODEL || "llama-3.3-70b-versatile"
   const githubToken = options.githubToken || process.env.GITHUB_TOKEN;
   if (!openAiKey) throw new Error("OpenAI API key is required");
   if (!githubToken) throw new Error("GitHub token is required");
@@ -75,10 +100,7 @@ When triggered, you:
 4. Save the generated documentation in the docs/ folder.
 5. Create a pull request with the new documentation.`,
     actions: initialDocumentationActions,
-    llm: createOpenAILLM({
-      apiKey: openAiKey,
-      model: "gpt-4-turbo-preview",
-    }),
+    llm: groqLLM,
     agentId: "initial-docs-agent",
   });
 

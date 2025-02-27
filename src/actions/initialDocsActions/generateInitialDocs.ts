@@ -2,7 +2,7 @@ import { createAction } from "spinai";
 import type { SpinAiContext } from "spinai";
 import type { ReviewState, GeneratedContent, PlannedDocUpdate } from "./types";
 import { Octokit } from "@octokit/rest";
-import OpenAI from "openai";
+import Groq from "groq-sdk";
 
 interface GenerateInitialDocsParams {
     owner: string;
@@ -42,7 +42,35 @@ export const generateInitialDocs = createAction({
             throw new Error("GITHUB_TOKEN environment variable is required");
         }
 
-        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+        const cachePath = ".docgen-cache.json";
+        let cache: Record<string, string> = {}; // Mapping update.path -> generated MDX content
+        let cacheSha: string | undefined = undefined;
+
+        // Try to load the persistent cache from the repository
+        try {
+            const { data } = await octokit.repos.getContent({
+                owner,
+                repo,
+                path: cachePath,
+            });
+            // Data should be a file with base64-encoded content
+            if (!Array.isArray(data) && "content" in data) {
+                const decoded = Buffer.from(data.content, "base64").toString("utf8");
+                cache = JSON.parse(decoded);
+                cacheSha = data.sha;
+                console.log("✅ Loaded persistent cache from repository.");
+            }
+        } catch (error: any) {
+            if (error.status === 404) {
+                console.log("ℹ️ No persistent cache found; starting with an empty cache.");
+                cache = {};
+            } else {
+                throw error;
+            }
+        }
+
+        const groqClient = new Groq({ apiKey: process.env.OPENAI_API_KEY });
         const state = context.state as ReviewState;
 
         if (!state.updatePlan || state.updatePlan.updates.length === 0) {
@@ -53,14 +81,29 @@ export const generateInitialDocs = createAction({
 
         const generatedContent: GeneratedContent = { files: [] };
 
+        // Process each planned documentation update
         for (const update of state.updatePlan.updates) {
+            console.log(`Processing update for: ${update.path}`);
+
+            // If cached, reuse the generated documentation
+            if (cache[update.path]) {
+                console.log(`🔄 Using cached documentation for: ${update.path}`);
+                generatedContent.files.push({
+                    path: update.path,
+                    content: cache[update.path],
+                    type: "create",
+                    reason: `Retrieved from persistent cache for ${update.sourceFiles[0]}`,
+                });
+                continue;
+            }
+
             console.log(`✏️ Generating documentation for: ${update.path}`);
 
-            // Extract meaningful file name without full path
+            // Derive a human-friendly title from the first source file
             const cleanTitle = update.sourceFiles[0]
-                .replace(/^app\//, "") // Remove "app/" prefix
-                .replace(/\//g, " > ") // Convert slashes to " > " for readability
-                .replace(/\.[^/.]+$/, ""); // Remove file extensions
+                .replace(/^app\//, "")
+                .replace(/\//g, " > ")
+                .replace(/\.[^/.]+$/, "");
             const docTemplate = `---
 title: "${cleanTitle}"
 description: "Documentation for ${update.sourceFiles[0]} in the ${repo} repository."
@@ -96,42 +139,71 @@ Follow this structure and return **only the MDX content**:
 ${docTemplate}
 \`\`\``;
 
-            const response = await openai.chat.completions.create({
-                model: "gpt-4-turbo-preview",
-                messages: [
-                    {
-                        role: "system",
-                        content: "You are a documentation expert. Generate structured MDX documentation based on best practices.",
-                    },
-                    {
-                        role: "user",
-                        content: prompt,
-                    },
-                ],
-                temperature: 0.3,
-            });
+            try {
+                const response = await groqClient.chat.completions.create({
+                    model: process.env.OPENAI_MODEL || "llama-3.3-70b-versatile",
+                    messages: [
+                        {
+                            role: "system",
+                            content: "You are a documentation expert. Generate structured MDX documentation based on best practices.",
+                        },
+                        {
+                            role: "user",
+                            content: prompt,
+                        },
+                    ],
+                    temperature: 0.3,
+                });
 
-            const content = response.choices[0]?.message?.content;
-            if (!content) {
-                throw new Error(`Failed to generate documentation for ${update.sourceFiles[0]}`);
+                const content = response.choices[0]?.message?.content;
+                if (!content) {
+                    throw new Error(`Failed to generate documentation for ${update.sourceFiles[0]}`);
+                }
+                const trimmedContent = content.replace(/^```mdx?\n|```$/g, "").trim();
+
+                // Persist the generated content in the cache
+                cache[update.path] = trimmedContent;
+
+                generatedContent.files.push({
+                    path: update.path,
+                    content: trimmedContent,
+                    type: "create",
+                    reason: `Generated structured documentation for ${update.sourceFiles[0]}`,
+                });
+
+                console.log(`✅ Documentation generated for ${update.sourceFiles[0]}`);
+            } catch (err) {
+                console.error(`❌ Error generating documentation for ${update.sourceFiles[0]}:`, err);
+                throw err;
             }
-
-            generatedContent.files.push({
-                path: update.path,
-                content: content.replace(/^```mdx?\n|```$/g, "").trim(),
-                type: "create",
-                reason: `Generated structured documentation for ${update.sourceFiles[0]}`,
-            });
-
-            console.log(`✅ Documentation generated for ${update.sourceFiles[0]}`);
         }
+
+        // Persist the updated cache file to the repository
+        try {
+            const cacheString = JSON.stringify(cache, null, 2);
+            const encodedCache = Buffer.from(cacheString).toString("base64");
+
+            await octokit.repos.createOrUpdateFileContents({
+                owner,
+                repo,
+                path: cachePath,
+                message: "Update documentation generation cache",
+                content: encodedCache,
+                branch: "main", // Adjust if necessary
+                sha: cacheSha,
+            });
+            console.log("📂 Persistent cache updated successfully.");
+        } catch (error) {
+            console.error("❌ Error updating persistent cache:", error);
+            // Optionally, continue without failing the entire process.
+        }
+
+        // Update the context state with the generated content
+        state.generatedContent = generatedContent;
 
         return {
             ...context,
-            state: {
-                ...state,
-                generatedContent,
-            },
+            state,
         };
     },
 });

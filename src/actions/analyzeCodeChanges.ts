@@ -2,7 +2,7 @@ import { createAction } from "spinai";
 import type { SpinAiContext } from "spinai";
 import type { ReviewState, CodeChange, CodeAnalysis } from "../types";
 import { Octokit } from "@octokit/rest";
-import OpenAI from "openai";
+import Groq from "groq-sdk";
 
 interface AnalyzeCodeChangesParams {
   owner: string;
@@ -23,7 +23,7 @@ function isAnalyzeCodeChangesParams(
 }
 
 async function analyzeChanges(
-  openai: OpenAI,
+  groq: Groq,
   files: { filename: string; patch?: string; status: string }[]
 ): Promise<CodeAnalysis> {
   const changes: CodeChange[] = [];
@@ -59,8 +59,8 @@ async function analyzeChanges(
   }
 
   // Use LLM for deeper analysis
-  const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+  const response = await groq.chat.completions.create({
+    model: process.env.OPENAI_MODEL || "llama-3.3-70b-versatile",
     messages: [
       {
         role: "system" as const,
@@ -147,7 +147,7 @@ export const analyzeCodeChanges = createAction({
     }
 
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const openai = new Groq({ apiKey: process.env.OPENAI_API_KEY });
 
     // Get the PR diff
     const { data: files } = await octokit.pulls.listFiles({

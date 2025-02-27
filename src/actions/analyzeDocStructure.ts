@@ -7,7 +7,7 @@ import type {
   NavigationItem,
 } from "../types";
 import { Octokit } from "@octokit/rest";
-import OpenAI from "openai";
+import Groq from "groq-sdk";
 
 interface AnalyzeDocStructureParams {
   owner: string;
@@ -106,7 +106,7 @@ async function buildDocStructure(
 }
 
 async function analyzeDocReferences(
-  openai: OpenAI,
+  openai: Groq,
   docStructure: DocStructure,
   octokit: Octokit,
   owner: string,
@@ -130,7 +130,7 @@ async function analyzeDocReferences(
 
         // Use LLM to analyze file content for references
         const response = await openai.chat.completions.create({
-          model: "gpt-4-turbo-preview",
+          model: process.env.OPENAI_MODEL || "llama-3.3-70b-versatile",
           messages: [
             {
               role: "system" as const,
@@ -204,7 +204,7 @@ export const analyzeDocStructure = createAction({
 
     const state = context.state as ReviewState;
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const openai = new Groq({ apiKey: process.env.OPENAI_API_KEY });
 
     // Get docs repository information
     const docsRepo = state.docsRepo || {

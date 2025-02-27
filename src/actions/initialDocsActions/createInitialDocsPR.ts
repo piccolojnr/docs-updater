@@ -3,7 +3,7 @@ import type { SpinAiContext } from "spinai";
 import type { ReviewState, GeneratedContent } from "./types";
 import { Octokit } from "@octokit/rest";
 import path from "path";
-import * as crypto from "crypto";
+import { randomUUID } from "crypto";
 
 interface CreateInitialDocsPRParams {
     owner: string;
@@ -50,7 +50,7 @@ export const createInitialDocsPR = createAction({
         console.log(`📂 Preparing to commit ${state.generatedContent.files.length} files...`);
 
         const baseBranch = state.config.docsRepo?.branch || "main";
-        const newBranch = "docs/init";
+        const newBranch = "docs/init_" + randomUUID().replace(/-/g, "").substring(0, 8);
 
         let branchExists = false;
         try {

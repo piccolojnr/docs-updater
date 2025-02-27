@@ -28,7 +28,7 @@ export async function generateInitialDocs(c: Context, agent: Agent) {
     // Create and execute the agent
     const result = await agent({
       input: "Generate initial documentation for the repository",
-      externalCustomerId: state.owner,
+      externalCustomerId: body.repository.owner.login,
       state,
     });
 

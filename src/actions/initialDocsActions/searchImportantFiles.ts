@@ -32,6 +32,7 @@ export const searchImportantFiles = createAction({
         required: ["owner", "repo"],
     },
     async run(context: SpinAiContext, parameters?: Record<string, unknown>) {
+        console.log("🔍 Searching for important files...", parameters);
         if (!parameters || !isSearchImportantFilesParams(parameters)) {
             throw new Error("Invalid parameters provided for searchImportantFiles");
         }
@@ -44,7 +45,7 @@ export const searchImportantFiles = createAction({
 
         const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
-        const COUNT_LIMIT = 10;
+        const COUNT_LIMIT = 30;
 
         async function getFilesRecursively(dir: string, importantPatterns: string[], ignorePatterns: string[], count: number = 0): Promise<string[]> {
             try {
@@ -107,13 +108,11 @@ export const searchImportantFiles = createAction({
 
             console.log(`Found important files: ${importantFiles.length}`);
 
-            return {
-                ...context,
-                state: {
-                    ...context.state,
-                    importantFiles,
-                },
+            context.state = {
+                ...state,
+                importantFiles,
             };
+            return context;
         } catch (error) {
             throw new Error(`Error searching for important files: ${error}`);
         }

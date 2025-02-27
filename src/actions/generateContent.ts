@@ -8,7 +8,7 @@ import type {
   CodeAnalysis,
 } from "../types";
 import { Octokit } from "@octokit/rest";
-import OpenAI from "openai";
+import Groq from "groq-sdk";
 
 interface GenerateContentParams {
   owner: string;
@@ -27,7 +27,7 @@ function isGenerateContentParams(
 }
 
 async function generateFileContent(
-  openai: OpenAI,
+  openai: Groq,
   update: PlannedDocUpdate,
   docStructure: DocStructure,
   codeAnalysis: CodeAnalysis,
@@ -36,7 +36,7 @@ async function generateFileContent(
   config: ReviewState["config"]
 ): Promise<string> {
   const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+    model: process.env.OPENAI_MODEL || "llama-3.3-70b-versatile",
     messages: [
       {
         role: "system" as const,
@@ -77,9 +77,9 @@ ${update.reason}
 
 Source Files:
 ${update.sourceFiles
-  .map((file) => {
-    const change = codeAnalysis.changes.find((c) => c.file === file);
-    return `
+            .map((file) => {
+              const change = codeAnalysis.changes.find((c) => c.file === file);
+              return `
 File: ${file}
 Type: ${change?.type || "unknown"}
 Patch:
@@ -87,8 +87,8 @@ Patch:
 ${change?.patch || ""}
 \`\`\`
 `;
-  })
-  .join("\n")}
+            })
+            .join("\n")}
 
 ${templateContent ? `Template to follow:\n${templateContent}\n` : ""}
 ${existingContent ? `Current content to update:\n${existingContent}\n` : ""}
@@ -97,14 +97,13 @@ Suggested Structure:
 ${update.suggestedContent ? JSON.stringify(update.suggestedContent, null, 2) : "Standard documentation structure"}
 
 Related Documentation:
-${
-  update.relatedDocs
-    ?.map((doc) => {
-      const existing = docStructure.files.find((f) => f.path === doc);
-      return `- ${doc}${existing ? " (exists)" : " (planned)"}`;
-    })
-    .join("\n") || "No related documentation"
-}
+${update.relatedDocs
+            ?.map((doc) => {
+              const existing = docStructure.files.find((f) => f.path === doc);
+              return `- ${doc}${existing ? " (exists)" : " (planned)"}`;
+            })
+            .join("\n") || "No related documentation"
+          }
 
 Please provide the complete MDX content for this documentation file.
 Remember: Return the content directly, starting with frontmatter (---). Do not wrap in backticks.`,
@@ -181,7 +180,7 @@ export const generateContent = createAction({
     }
 
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const openai = new Groq({ apiKey: process.env.OPENAI_API_KEY });
 
     console.log("\n=== Generating Documentation Content ===");
 

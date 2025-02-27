@@ -6,7 +6,7 @@ import type {
   DocStructure,
   UpdatePlan,
 } from "../types";
-import OpenAI from "openai";
+import Groq from "groq-sdk";
 
 interface PlanDocUpdatesParams {
   owner: string;
@@ -25,14 +25,14 @@ function isPlanDocUpdatesParams(
 }
 
 async function generateUpdatePlan(
-  openai: OpenAI,
+  openai: Groq,
   codeAnalysis: CodeAnalysis,
   docStructure: DocStructure,
   config: ReviewState["config"]
 ): Promise<UpdatePlan> {
   // Use LLM to analyze changes and plan documentation updates
   const response = await openai.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+    model: process.env.OPENAI_MODEL || "llama-3.3-70b-versatile",
     messages: [
       {
         role: "system" as const,
@@ -89,15 +89,15 @@ Significant Changes: ${codeAnalysis.significantChanges}
 
 Changed Files:
 ${codeAnalysis.changes
-  .map(
-    (change) => `
+            .map(
+              (change) => `
 - ${change.file} (${change.type})
   Category: ${change.category}
   Significance: ${JSON.stringify(change.significance)}
   Related Files: ${change.relatedFiles?.join(", ") || "none"}
 `
-  )
-  .join("\n")}
+            )
+            .join("\n")}
 
 Documentation Structure:
 Categories: ${docStructure.categories.join(", ")}
@@ -173,7 +173,7 @@ export const planDocUpdates = createAction({
       );
     }
 
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const openai = new Groq({ apiKey: process.env.OPENAI_API_KEY });
 
     console.log("\n=== Planning Documentation Updates ===");
 
